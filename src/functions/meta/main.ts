@@ -35,7 +35,7 @@ export async function getAudioMetadata(
 
   return new Promise((resolve) => {
     jsmediatags.read(url, {
-      onSuccess: (result) => {
+      onSuccess: (result : any) => {
         const tags = result.tags;
 
         let cover: string | null = null;

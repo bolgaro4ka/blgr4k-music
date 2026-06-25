@@ -247,7 +247,7 @@ const setValueFromEvent = (e: MouseEvent | TouchEvent): void => {
     const rect = container.value.getBoundingClientRect();
     let clientX: number;
     if ('touches' in e) {
-        clientX = e.touches[0].clientX;
+        clientX = (e.touches[0] as Touch).clientX;
     } else {
         clientX = e.clientX;
     }

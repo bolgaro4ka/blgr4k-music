@@ -1,0 +1,16 @@
+.button-link {
+  background-color: var(--primary-color);
+  border: none;
+  border-radius: 20px;
+  width: 70px;
+  height: 30px;
+}
+
+.button-link-outline {
+  background-color: transparent;
+  border: 1px solid var(--primary-color);
+  color: var(--primary-color);
+  border-radius: 20px;
+  width: 70px;
+  height: 30px;
+}
