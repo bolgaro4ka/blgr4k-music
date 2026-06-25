@@ -1,355 +1,165 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import Modal from '../particles/Modal.vue'
 import { useMusicStore } from '@/stores/main'
 
 const emits = defineEmits(['close'])
+
 const store = useMusicStore()
 
-// --- Frequency bands ---
-interface Band {
-  frequency: number
-  label: string
-}
+const canvasRef = ref<HTMLCanvasElement>()
 
-const bands: Band[] = [
-  { frequency: 32, label: '32' },
-  { frequency: 64, label: '64' },
-  { frequency: 125, label: '125' },
-  { frequency: 250, label: '250' },
-  { frequency: 500, label: '500' },
-  { frequency: 1000, label: '1k' },
-  { frequency: 2000, label: '2k' },
-  { frequency: 4000, label: '4k' },
-  { frequency: 8000, label: '8k' },
-  { frequency: 16000, label: '16k' },
-]
+let animationId = 0
 
-// Gain values for each band (dB)
-const gains = ref<number[]>(Array(bands.length).fill(0))
-
-// --- Audio graph ---
-const audioContext = ref<AudioContext | null>(null)
-let sourceNode: MediaElementAudioSourceNode | null = null
-let filters: BiquadFilterNode[] = []
-let analyser: AnalyserNode | null = null
-
-// Canvas for visualization
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-let animationFrameId: number | null = null
-
-// Material You 3 color mappings
-const rootStyle = computed(() => ({
-  '--md-primary': store.colors.primary,
-  '--md-surface': store.colors.surface,
-  '--md-background': store.colors.background,
-  '--md-on-primary': store.colors.onPrimary,
-  '--md-secondary': store.colors.secondary,
-  '--md-tertiary': store.colors.tertiary,
-  '--md-outline': store.colors.outline,
-  '--md-text-primary': store.colors.textPrimary,
-  '--md-text-secondary': store.colors.textSecondary,
-}))
-
-// --- Audio processing setup ---
-async function initAudioGraph(audioEl: HTMLAudioElement) {
-  if (!window.AudioContext) return
-
-  const ctx = new AudioContext()
-  audioContext.value = ctx
-  if (ctx.state === 'suspended') {
-    await ctx.resume()
-  }
-
-  sourceNode = ctx.createMediaElementSource(audioEl)
-
-  analyser = ctx.createAnalyser()
-  analyser.fftSize = 256
-
-  filters = bands.map((band, i) => {
-    const filter = ctx.createBiquadFilter()
-    filter.type = 'peaking'
-    filter.frequency.value = band.frequency
-    filter.Q.value = 1.0
-    filter.gain.value = gains.value[i]
-    return filter
-  })
-
-  // Chain: source → filters → analyser → destination
-  sourceNode.connect(filters[0])
-  for (let i = 0; i < filters.length - 1; i++) {
-    filters[i].connect(filters[i + 1])
-  }
-  filters[filters.length - 1].connect(analyser)
-  analyser.connect(ctx.destination)
-}
-
-function reconnectSource(audioEl: HTMLAudioElement) {
-  if (!audioContext.value || !sourceNode) return
-  sourceNode.disconnect()
-  sourceNode = audioContext.value.createMediaElementSource(audioEl)
-  if (filters.length) sourceNode.connect(filters[0])
-}
-
-function closeAudioGraph() {
-  if (animationFrameId) {
-    cancelAnimationFrame(animationFrameId)
-    animationFrameId = null
-  }
-  if (audioContext.value) {
-    audioContext.value.close()
-    audioContext.value = null
-    sourceNode = null
-    filters = []
-    analyser = null
-  }
-}
-
-// --- Reactivity: audio source changes ---
-watch(
-  () => store.currentAudio,
-  (newAudio, oldAudio) => {
-    // Cleanup when audio is removed
-    if (oldAudio && !newAudio) {
-      closeAudioGraph()
-      return
-    }
-    if (!newAudio) return
-
-    // Initialize or reconnect
-    if (!audioContext.value) {
-      initAudioGraph(newAudio)
-    } else {
-      reconnectSource(newAudio)
-    }
-  },
-  { immediate: true }
-)
-
-// Update filter gains when sliders move
-watch(
-  gains,
-  (newGains) => {
-    if (!filters.length) return
-    newGains.forEach((gain, i) => {
-      if (filters[i]) {
-        filters[i].gain.value = gain
-      }
-    })
-  },
-  { deep: true }
-)
-
-// --- Frequency visualization ---
-function drawVisualization() {
-  if (!analyser || !canvasRef.value) return
+const drawSpectrum = () => {
+  if (!canvasRef.value || !store.analyser)
+    return
 
   const canvas = canvasRef.value
   const ctx = canvas.getContext('2d')
-  if (!ctx) return
 
-  const bufferLength = analyser.frequencyBinCount
-  const dataArray = new Uint8Array(bufferLength)
+  if (!ctx)
+    return
+
+  const analyser = store.analyser
+
+  const data = new Uint8Array(analyser.frequencyBinCount)
 
   const render = () => {
-    animationFrameId = requestAnimationFrame(render)
+    animationId = requestAnimationFrame(render)
 
-    // Resize canvas to match container
-    const container = canvas.parentElement
-    if (container) {
-      const rect = container.getBoundingClientRect()
-      if (canvas.width !== rect.width || canvas.height !== rect.height) {
-        canvas.width = rect.width
-        canvas.height = rect.height
-      }
-    }
+    analyser.getByteFrequencyData(data)
 
-    analyser!.getByteFrequencyData(dataArray)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    const width = canvas.width
-    const height = canvas.height
-    ctx.clearRect(0, 0, width, height)
+    const width = canvas.width / data.length
 
-    const barCount = bufferLength
-    const barWidth = (width / barCount) * 2.5
-    let x = 0
+    data.forEach((value, index) => {
+      const h = (value / 255) * canvas.height
 
-    ctx.fillStyle = store.colors.primary
-    for (let i = 0; i < barCount; i++) {
-      const barHeight = (dataArray[i] / 255) * height
-      ctx.fillRect(x, height - barHeight, barWidth, barHeight)
-      x += barWidth + 1
-    }
+      ctx.fillStyle =
+        'rgba(103,80,164,0.7)'
+
+      ctx.fillRect(
+        index * width,
+        canvas.height - h,
+        width,
+        h
+      )
+    })
   }
 
   render()
 }
 
-// Start/stop visualization based on analyser existence
-watch(analyser, (newVal) => {
-  if (newVal && canvasRef.value) {
-    drawVisualization()
-  } else {
-    if (animationFrameId) {
-      cancelAnimationFrame(animationFrameId)
-      animationFrameId = null
-    }
-  }
+onMounted(() => {
+  drawSpectrum()
 })
 
-// Cleanup on unmount (only animation, context stays for audio)
 onUnmounted(() => {
-  if (animationFrameId) {
-    cancelAnimationFrame(animationFrameId)
-    animationFrameId = null
-  }
+  cancelAnimationFrame(animationId)
 })
-
-// --- Helpers ---
-function resetEQ() {
-  gains.value = Array(bands.length).fill(0)
-}
 </script>
 
 <template>
-  <Modal title="Эквалайзер" @close="emits('close')">
-    <div class="equalizer-root" :style="rootStyle">
-      <div class="equalizer-container">
-        <canvas ref="canvasRef" class="visualization-canvas" />
-        <div class="sliders-row">
-          <div
-            v-for="(band, index) in bands"
-            :key="band.frequency"
-            class="slider-column"
-          >
-            <span class="gain-value">{{ gains[index] > 0 ? '+' : '' }}{{ gains[index] }} dB</span>
-            <div class="slider-wrapper">
-              <input
-                type="range"
-                class="vertical-slider"
-                :min="-12"
-                :max="12"
-                step="0.5"
-                v-model.number="gains[index]"
-              />
-            </div>
-            <span class="freq-label">{{ band.label }}</span>
-          </div>
+  <Modal
+    title="Эквалайзер"
+    @close="() => emits('close')"
+  >
+    <div class="equalizer">
+      <canvas
+        ref="canvasRef"
+        width="900"
+        height="180"
+        class="visualizer"
+      />
+
+      <div class="bands">
+        <div
+          v-for="(band, index) in store.equalizerBands"
+          :key="band.freq"
+          class="band"
+        >
+          <span>{{ band.gain }} dB</span>
+
+          <input
+            type="range"
+            min="-12"
+            max="12"
+            step="0.5"
+            :value="band.gain"
+            @input="
+              store.updateBand(
+                index,
+                Number(
+                  ($event.target as HTMLInputElement)
+                    .value
+                )
+              )
+            "
+          />
+
+          <label>
+            {{ band.freq >= 1000
+              ? `${band.freq / 1000}k`
+              : band.freq }}
+          </label>
         </div>
-        <button class="reset-btn" @click="resetEQ">Сбросить</button>
       </div>
     </div>
   </Modal>
 </template>
 
-<style lang="scss" scoped>
-.equalizer-root {
-  background: var(--md-background);
-  color: var(--md-text-primary);
-  border-radius: 28px;
-  overflow: hidden;
-}
-
-.equalizer-container {
-  position: relative;
-  width: 100%;
-  padding: 16px;
+<style scoped lang="scss">
+.equalizer {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  gap: 24px;
 }
 
-.visualization-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
+.visualizer {
   width: 100%;
-  height: 100%;
-  z-index: 0;
-  opacity: 0.25;
-  pointer-events: none;
-  border-radius: inherit;
+  height: 180px;
+
+  border-radius: 24px;
+
+  background: rgba(255,255,255,.05);
+
+  backdrop-filter: blur(20px);
 }
 
-.sliders-row {
-  position: relative;
-  z-index: 1;
+.bands {
   display: flex;
+  justify-content: space-between;
   gap: 12px;
-  justify-content: center;
-  flex-wrap: wrap;
 }
 
-.slider-column {
+.band {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  min-width: 50px;
+  gap: 12px;
+
+  flex: 1;
 }
 
-.gain-value,
-.freq-label {
+.band span {
   font-size: 12px;
-  font-weight: 500;
-  color: var(--md-text-secondary);
+  color: var(--md-sys-color-on-surface);
 }
 
-.slider-wrapper {
-  width: 32px;
-  height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.band label {
+  font-size: 12px;
+  color: var(--md-sys-color-outline);
 }
 
-.vertical-slider {
-  -webkit-appearance: none;
-  background: transparent;
-  width: 200px; /* becomes visual height after rotation */
-  height: 32px;
-  transform: rotate(-90deg);
-  cursor: pointer;
+.band input[type='range'] {
+  writing-mode: vertical-lr;
+  direction: rtl;
 
-  &::-webkit-slider-runnable-track {
-    height: 4px;
-    background: var(--md-outline);
-    border-radius: 2px;
-  }
+  width: 8px;
+  height: 180px;
 
-  &::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 20px;
-    height: 20px;
-    background: var(--md-primary);
-    border-radius: 50%;
-    margin-top: -8px;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-    transition: transform 0.15s;
-  }
-
-  &::-webkit-slider-thumb:hover {
-    transform: scale(1.15);
-  }
-}
-
-.reset-btn {
-  position: relative;
-  z-index: 1;
-  margin-top: 8px;
-  background: var(--md-primary);
-  color: var(--md-on-primary);
-  border: none;
-  border-radius: 20px;
-  padding: 8px 24px;
-  font-weight: 500;
-  font-size: 14px;
-  cursor: pointer;
-  transition: opacity 0.2s;
-
-  &:hover {
-    opacity: 0.9;
-  }
+  accent-color: #6750a4;
 }
 </style>

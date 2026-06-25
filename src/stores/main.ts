@@ -40,6 +40,63 @@ export const useMusicStore = defineStore('main', () => {
   const volume = ref<number>(80)
 
   const currentAudio = ref<HTMLAudioElement | null>(null)
+  const audioContext = ref<AudioContext | null>(null)
+  const analyser = ref<AnalyserNode | null>(null)
+
+  const equalizerBands = ref([
+    { freq: 60, gain: 0 },
+    { freq: 170, gain: 0 },
+    { freq: 310, gain: 0 },
+    { freq: 600, gain: 0 },
+    { freq: 1000, gain: 0 },
+    { freq: 3000, gain: 0 },
+    { freq: 6000, gain: 0 },
+    { freq: 12000, gain: 0 },
+    { freq: 14000, gain: 0 },
+    { freq: 16000, gain: 0 },
+  ])
+
+  const filters = ref<BiquadFilterNode[]>([])
+
+  const initAudioGraph = (audio: HTMLAudioElement) => {
+    audioContext.value ??= new AudioContext()
+
+    const source = audioContext.value.createMediaElementSource(audio)
+
+    filters.value = equalizerBands.value.map((band) => {
+      const filter = audioContext.value!.createBiquadFilter()
+
+      filter.type = 'peaking'
+      filter.frequency.value = band.freq
+      filter.gain.value = band.gain
+      filter.Q.value = 1
+
+      return filter
+    })
+
+    analyser.value = audioContext.value.createAnalyser()
+
+    analyser.value.fftSize = 2048
+
+    let previous: AudioNode = source
+
+    filters.value.forEach((filter) => {
+      previous.connect(filter)
+      previous = filter
+    })
+
+    previous.connect(analyser.value)
+    analyser.value.connect(audioContext.value.destination)
+  }
+
+  const updateBand = (index: number, gain: number) => {
+    equalizerBands.value[index].gain = gain
+
+    if (filters.value[index]) {
+      filters.value[index].gain.value = gain
+    }
+  }
+
   const history = ref<number[]>([])
   const queue = ref<number[]>(history.value)
 
@@ -60,11 +117,11 @@ export const useMusicStore = defineStore('main', () => {
     if (!event) return
     if (!currentAudio.value) return
     if (isPlaying.value) {
-        isPlaying.value = false
+      isPlaying.value = false
     }
     console.log(progress.value)
 
-    currentAudio.value.currentTime = event * currentAudio.value.duration / 100;
+    currentAudio.value.currentTime = (event * currentAudio.value.duration) / 100
     progress.value = event
     isPlaying.value = !isPlaying.value
   }
@@ -83,7 +140,6 @@ export const useMusicStore = defineStore('main', () => {
   const handleNext = async () => {
     queue.value = deleteFromArray(queue.value, id.value)
     history.value.push(id.value)
-
   }
 
   const play = async (musicId: number) => {
@@ -91,6 +147,7 @@ export const useMusicStore = defineStore('main', () => {
 
     const audio = new Audio(DB.songs[id.value]?.path)
     currentAudio.value = audio
+    initAudioGraph(audio)
     _applyMetaDataSong(id.value)
     await audio.play()
     togglePlay()
@@ -131,7 +188,7 @@ export const useMusicStore = defineStore('main', () => {
     duration.value = `${String(Math.floor(currentAudio.value.currentTime / 60)).padStart(2, '0')}:${String(Math.floor(currentAudio.value.currentTime % 60)).padStart(2, '0')}/${String(Math.floor(currentAudio.value.duration / 60)).padStart(2, '0')}:${String(Math.floor(currentAudio.value.duration % 60)).padStart(2, '0')}`
   }
 
-  const _applyMetaDataSong = (_id : number) => {
+  const _applyMetaDataSong = (_id: number) => {
     title.value = DB.songs[_id]?.title || ''
   }
 
@@ -155,5 +212,8 @@ export const useMusicStore = defineStore('main', () => {
     stop,
     volume,
     updateVolume,
+    equalizerBands,
+    updateBand,
+    analyser,
   }
 })
