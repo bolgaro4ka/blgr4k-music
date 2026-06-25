@@ -27,6 +27,7 @@ export const useMusicStore = defineStore('main', () => {
     textSecondary: '#b3b3b3',
   })
 
+  const currentPreset = ref('Flat')
   const presets = {
     Flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 
@@ -109,6 +110,24 @@ export const useMusicStore = defineStore('main', () => {
     if (filters.value[index]) {
       filters.value[index].gain.value = gain
     }
+
+    currentPreset.value = 'Custom'
+  }
+
+  const applyPreset = (name: keyof typeof presets) => {
+    currentPreset.value = name
+
+    presets[name].forEach((gain, index) => {
+      updateBand(index, gain)
+    })
+  }
+
+  const resetEqualizer = () => {
+    currentPreset.value = 'Flat'
+
+    equalizerBands.value.forEach((_, index) => {
+      updateBand(index, 0)
+    })
   }
 
   const history = ref<number[]>([])
@@ -157,6 +176,7 @@ export const useMusicStore = defineStore('main', () => {
   }
 
   const play = async (musicId: number) => {
+    await stop()
     id.value = musicId
 
     const audio = new Audio(DB.songs[id.value]?.path)
@@ -229,5 +249,9 @@ export const useMusicStore = defineStore('main', () => {
     equalizerBands,
     updateBand,
     analyser,
+    presets,
+    applyPreset,
+    currentPreset,
+    resetEqualizer,
   }
 })
