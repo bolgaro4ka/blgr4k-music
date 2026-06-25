@@ -27,6 +27,20 @@ export const useMusicStore = defineStore('main', () => {
     textSecondary: '#b3b3b3',
   })
 
+  const presets = {
+    Flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+
+    BassBoost: [8, 7, 6, 3, 0, -2, -4, -4, -4, -4],
+
+    TrebleBoost: [-4, -4, -3, -2, 0, 4, 6, 8, 8, 8],
+
+    Rock: [5, 3, -2, -3, 0, 3, 5, 6, 5, 4],
+
+    Pop: [-1, 2, 4, 5, 3, 0, -1, -1, -1, -1],
+
+    Electronic: [7, 6, 2, 0, -2, 2, 5, 7, 7, 6],
+  }
+
   const name = ref<string>('No song selected')
   const author = ref<string>('')
   const imageUrl = ref<string>('')
